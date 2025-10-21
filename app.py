@@ -1,13 +1,11 @@
-# app.py (Render-ready, Python 3.10+ compatible)
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 import os, re, spacy
 
-# Optional API key protection (set env API_KEY to enable)
 API_KEY = os.getenv("API_KEY")
-
 MODEL_NAME = os.getenv("SPACY_MODEL", "nl_core_news_sm")
+
 try:
     nlp = spacy.load(MODEL_NAME)
 except OSError:
@@ -24,7 +22,7 @@ DEFAULT_LABELS = {"PERSON", "ORG", "GPE", "LOC", "DATE", "TIME", "MONEY", "CARDI
 class AnonRequest(BaseModel):
     text: str
     labels: Optional[List[str]] = None
-    mask_style: str = "label"      # "label" | "stars" | "token"
+    mask_style: str = "label"
     keep_length: bool = False
 
 def mask_for(label: str, length: int, style: str, keep_length: bool):
@@ -50,7 +48,6 @@ def anonymize(req: AnonRequest, x_api_key: Optional[str] = Header(default=None))
     targets = set(req.labels) if req.labels else DEFAULT_LABELS
 
     spans = []
-    # Regex first → priority over NER overlaps
     for m in EMAIL_RE.finditer(req.text):
         spans.append((m.start(), m.end(), "EMAIL"))
     for m in PHONE_RE.finditer(req.text):
