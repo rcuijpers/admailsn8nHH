@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: spacy-anonymizer
+    env: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: SPACY_MODEL
+        value: nl_core_news_sm
+      - key: API_KEY
+        generateValue: true
