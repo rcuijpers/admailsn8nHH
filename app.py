@@ -1,56 +1,83 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Request
 from pydantic import BaseModel
 import spacy
+import re
 import os
 import subprocess
-import sys
 
-MODEL_NAME = "nl_core_news_sm"
+app = FastAPI()
 
-app = FastAPI(title="SpaCy Anonymizer")
+MODEL_NAME = "nl_core_news_lg"
 
-# Model laden (of downloaden indien nodig)
+# Download het model als het nog niet aanwezig is
 try:
     nlp = spacy.load(MODEL_NAME)
 except OSError:
-    subprocess.run([sys.executable, "-m", "spacy", "download", MODEL_NAME], check=True)
+    subprocess.run(["python", "-m", "spacy", "download", MODEL_NAME], check=True)
     nlp = spacy.load(MODEL_NAME)
 
 
 class AnonymizeRequest(BaseModel):
     text: str
-    mask_style: str = "label"
+    mask_style: str = "label"        # "label" of "stars"
     keep_length: bool = False
-    skip_labels: list[str] = []  # nieuw veld, optioneel
+    skip_labels: list[str] = []      # lijst met labels om over te slaan
+
+
+@app.get("/")
+def root():
+    return {"message": "SpaCy Anonymizer API running 🚀"}
 
 
 @app.post("/anonymize")
-async def anonymize(req: AnonymizeRequest):
-    if not req.text:
-        raise HTTPException(status_code=400, detail="Text is required.")
+async def anonymize(request: AnonymizeRequest):
+    text = request.text
+    mask_style = request.mask_style
+    keep_length = request.keep_length
+    skip_labels = set(request.skip_labels)
 
-    doc = nlp(req.text)
-    text = req.text
-    entities = []
+    doc = nlp(text)
 
-    for ent in doc.ents:
-        if ent.label_ in req.skip_labels:
-            continue  # overslaan wat is opgegeven in de request
-
-        replacement = f"[{ent.label_}]" if req.mask_style == "label" else "*" * len(ent.text)
-        if req.keep_length and req.mask_style == "label":
-            replacement = replacement.ljust(len(ent.text))
-        text = text.replace(ent.text, replacement)
-        entities.append({
-            "start": ent.start_char,
-            "end": ent.end_char,
-            "label": ent.label_,
-            "text": ent.text
+    # Extra entiteiten detecteren via regex (straatnamen, laan, weg, plein)
+    extra_entities = []
+    street_pattern = re.compile(r"\b[A-Z][a-z]+(?:straat|laan|weg|plein)\b")
+    for match in street_pattern.finditer(text):
+        extra_entities.append({
+            "start": match.start(),
+            "end": match.end(),
+            "label": "STREET",
+            "text": match.group(0)
         })
 
-    return {"text": text, "entities": entities}
+    # Combineer originele SpaCy entiteiten met regex-gevonden straten
+    entities = [
+        {"start": ent.start_char, "end": ent.end_char, "label": ent.label_, "text": ent.text}
+        for ent in doc.ents
+        if ent.label_ not in skip_labels
+    ] + extra_entities
 
+    # Sorteer entiteiten op startpositie (voor consistentie)
+    entities.sort(key=lambda e: e["start"])
 
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
+    anonymized_text = text
+    offset = 0
+    for ent in entities:
+        start, end = ent["start"] + offset, ent["end"] + offset
+        original = ent["text"]
+
+        # Skip als ent.label_ staat in skip_labels
+        if ent["label"] in skip_labels:
+            continue
+
+        if mask_style == "stars":
+            replacement = "*" * len(original) if keep_length else "*****"
+        else:
+            replacement = f"[{ent['label']}]"
+            if keep_length:
+                pad = max(0, len(original) - len(replacement))
+                replacement += " " * pad
+
+        anonymized_text = anonymized_text[:start] + replacement + anonymized_text[end:]
+        offset += len(replacement) - len(original)
+
+    return {"text": anonymized_text, "entities": entities}
