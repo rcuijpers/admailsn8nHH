@@ -6,12 +6,8 @@ import os, re, spacy
 API_KEY = os.getenv("API_KEY")
 MODEL_NAME = os.getenv("SPACY_MODEL", "nl_core_news_sm")
 
-try:
-    nlp = spacy.load(MODEL_NAME)
-except OSError:
-    import subprocess, sys
-    subprocess.run([sys.executable, "-m", "spacy", "download", MODEL_NAME], check=True)
-    nlp = spacy.load(MODEL_NAME)
+# Model is installed at build time via requirements.txt
+nlp = spacy.load(MODEL_NAME)
 
 app = FastAPI(title="spaCy Anonymizer (NL)")
 
